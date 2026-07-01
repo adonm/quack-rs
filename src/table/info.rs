@@ -12,6 +12,10 @@ use std::ffi::CString;
 
 use std::os::raw::c_void;
 
+#[cfg(feature = "duckdb-1-5")]
+use libduckdb_sys::{
+    duckdb_client_context, duckdb_delete_callback_t, duckdb_table_function_get_client_context,
+};
 use libduckdb_sys::{
     duckdb_bind_add_result_column, duckdb_bind_get_extra_info, duckdb_bind_get_named_parameter,
     duckdb_bind_get_parameter, duckdb_bind_info, duckdb_bind_set_cardinality,
@@ -20,7 +24,10 @@ use libduckdb_sys::{
     duckdb_value, idx_t,
 };
 #[cfg(feature = "duckdb-1-5")]
-use libduckdb_sys::{duckdb_client_context, duckdb_table_function_get_client_context};
+use libduckdb_sys::{
+    duckdb_bind_set_bind_data, duckdb_function_get_bind_data, duckdb_function_get_init_data,
+    duckdb_function_get_local_init_data, duckdb_init_get_bind_data, duckdb_init_set_init_data,
+};
 
 use crate::types::{LogicalType, TypeId};
 use crate::value::Value;
@@ -205,6 +212,21 @@ impl BindInfo {
         unsafe { duckdb_bind_get_extra_info(self.info) }
     }
 
+    /// Stores bind-local opaque data that can later be retrieved during init
+    /// and scan callbacks via [`InitInfo::get_bind_data`] /
+    /// [`FunctionInfo::get_bind_data`] (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// `data` must point to valid memory. `destroy` will be called by `DuckDB`
+    /// when the query finishes. Use `Box::into_raw(Box::new(my_data)).cast()`
+    /// and let `DuckDB` call back to a `Box::from_raw` destructor.
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn set_bind_data(&self, data: *mut c_void, destroy: duckdb_delete_callback_t) {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_bind_set_bind_data(self.info, data, destroy) };
+    }
+
     /// Returns the client context for this callback.
     ///
     /// The returned [`ClientContext`][crate::client_context::ClientContext] provides
@@ -300,6 +322,34 @@ impl InitInfo {
         unsafe { duckdb_init_get_extra_info(self.info) }
     }
 
+    /// Retrieves the bind data pointer previously set via
+    /// [`BindInfo::set_bind_data`] during the bind callback (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is only valid as long as `DuckDB` has not called
+    /// the destructor registered with [`BindInfo::set_bind_data`].
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub unsafe fn get_bind_data(&self) -> *mut c_void {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_init_get_bind_data(self.info) }
+    }
+
+    /// Stores init-local opaque data that can later be retrieved during the
+    /// scan callback via [`FunctionInfo::get_init_data`] (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// `data` must point to valid memory. `destroy` will be called by `DuckDB`
+    /// when the scan finishes. Use `Box::into_raw(Box::new(my_data)).cast()` and
+    /// let `DuckDB` call back to a `Box::from_raw` destructor.
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn set_init_data(&self, data: *mut c_void, destroy: duckdb_delete_callback_t) {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_init_set_init_data(self.info, data, destroy) };
+    }
+
     /// Returns the raw `duckdb_init_info` handle.
     #[must_use]
     #[inline]
@@ -345,6 +395,47 @@ impl FunctionInfo {
     /// according to its original type.
     pub unsafe fn get_extra_info(&self) -> *mut c_void {
         unsafe { duckdb_function_get_extra_info(self.info) }
+    }
+
+    /// Retrieves the bind data pointer previously set via
+    /// [`BindInfo::set_bind_data`] during the bind callback (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is only valid as long as `DuckDB` has not called
+    /// the destructor registered with [`BindInfo::set_bind_data`].
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub unsafe fn get_bind_data(&self) -> *mut c_void {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_function_get_bind_data(self.info) }
+    }
+
+    /// Retrieves the init data pointer previously set via
+    /// [`InitInfo::set_init_data`] during the init callback (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is only valid for the duration of this scan.
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub unsafe fn get_init_data(&self) -> *mut c_void {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_function_get_init_data(self.info) }
+    }
+
+    /// Retrieves the per-thread local init data set by a `local_init`
+    /// callback (`DuckDB` 1.5.0+). Returns null when no local init was set.
+    ///
+    /// # Safety
+    ///
+    /// Each thread receives its own local init data; the returned pointer is
+    /// only valid for the current thread's scan.
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub unsafe fn get_local_init_data(&self) -> *mut c_void {
+        // SAFETY: self.info is valid per constructor's contract.
+        unsafe { duckdb_function_get_local_init_data(self.info) }
     }
 
     /// Returns the raw `duckdb_function_info` handle.

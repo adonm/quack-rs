@@ -157,6 +157,11 @@ tempfile = "=3.27.0"
 name = "interval_bench"
 harness = false
 
+[[test]]
+name = "test_value_ffi"
+path = "tests/test_value_ffi.rs"
+required-features = ["bundled-test-prebuilt", "duckdb-1-5"]
+
 [profile.release]
 opt-level = 3
 lto = true
