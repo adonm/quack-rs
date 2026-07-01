@@ -167,6 +167,11 @@ name = "test_prepared_ffi"
 path = "tests/test_prepared_ffi.rs"
 required-features = ["bundled-test-prebuilt", "duckdb-1-5"]
 
+[[test]]
+name = "test_prim_ffi"
+path = "tests/test_prim_ffi.rs"
+required-features = ["bundled-test-prebuilt", "duckdb-1-5"]
+
 [profile.release]
 opt-level = 3
 lto = true

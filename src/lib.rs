@@ -137,6 +137,7 @@ pub mod entry_point;
 pub mod error;
 pub mod interval;
 pub mod prelude;
+pub mod prim;
 pub mod prepared;
 pub mod replacement_scan;
 pub mod result;
