@@ -717,7 +717,7 @@ impl Value {
     ///
     /// Returns `None` if the handle is null, the value is not a MAP, or the index is out of bounds.
     #[must_use]
-    pub fn map_value(&self, index: usize) -> Option<Self> {
+    pub fn map_at(&self, index: usize) -> Option<Self> {
         if self.raw.is_null() {
             return None;
         }
@@ -1059,6 +1059,139 @@ impl Value {
             libduckdb_sys::duckdb_create_blob(
                 data.as_ptr(),
                 libduckdb_sys::idx_t::try_from(data.len()).unwrap_or(libduckdb_sys::idx_t::MAX),
+            )
+        };
+        Self { raw }
+    }
+
+    /// Creates a `TIME` `Value` from a `duckdb_time` (`{ micros: i64 }` since midnight).
+    #[inline]
+    #[must_use]
+    pub fn time(v: duckdb_time) -> Self {
+        let raw = unsafe { libduckdb_sys::duckdb_create_time(v) };
+        Self { raw }
+    }
+
+    /// Creates a `DECIMAL` `Value` from `{ width, scale, value: hugeint }`.
+    #[inline]
+    #[must_use]
+    pub fn decimal(v: duckdb_decimal) -> Self {
+        let raw = unsafe { libduckdb_sys::duckdb_create_decimal(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIME_TZ` `Value` from a `duckdb_time_tz` (`DuckDB` 1.5+).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn time_tz(v: libduckdb_sys::duckdb_time_tz) -> Self {
+        let raw = unsafe { libduckdb_sys::duckdb_create_time_tz_value(v) };
+        Self { raw }
+    }
+
+    /// Creates a `BIT` `Value` from a raw byte buffer (`DuckDB` copies it).
+    #[must_use]
+    pub fn bit(data: &[u8]) -> Self {
+        let bit = libduckdb_sys::duckdb_bit {
+            data: data.as_ptr().cast_mut(),
+            size: libduckdb_sys::idx_t::try_from(data.len()).unwrap_or(libduckdb_sys::idx_t::MAX),
+        };
+        let raw = unsafe { libduckdb_sys::duckdb_create_bit(bit) };
+        Self { raw }
+    }
+
+    /// Creates a `STRUCT` `Value` from its logical type and the child `Value`s
+    /// in field-declaration order. Takes ownership of each consumed `Value`.
+    #[must_use]
+    pub fn struct_value(logical_type: &LogicalType, values: Vec<Self>) -> Self {
+        let mut raws: Vec<libduckdb_sys::duckdb_value> =
+            values.into_iter().map(Self::into_raw).collect();
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_struct_value(logical_type.as_raw(), raws.as_mut_ptr())
+        };
+        Self { raw }
+    }
+
+    /// Creates a `LIST` `Value` from its child logical type and element `Value`s.
+    /// Takes ownership of each consumed `Value`.
+    #[must_use]
+    pub fn list_value(logical_type: &LogicalType, values: Vec<Self>) -> Self {
+        let mut raws: Vec<libduckdb_sys::duckdb_value> =
+            values.into_iter().map(Self::into_raw).collect();
+        let count =
+            libduckdb_sys::idx_t::try_from(raws.len()).unwrap_or(libduckdb_sys::idx_t::MAX);
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_list_value(logical_type.as_raw(), raws.as_mut_ptr(), count)
+        };
+        Self { raw }
+    }
+
+    /// Creates an `ARRAY` `Value` of fixed size. Takes ownership of each
+    /// consumed `Value`.
+    #[must_use]
+    pub fn array_value(logical_type: &LogicalType, values: Vec<Self>) -> Self {
+        let mut raws: Vec<libduckdb_sys::duckdb_value> =
+            values.into_iter().map(Self::into_raw).collect();
+        let count =
+            libduckdb_sys::idx_t::try_from(raws.len()).unwrap_or(libduckdb_sys::idx_t::MAX);
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_array_value(
+                logical_type.as_raw(),
+                raws.as_mut_ptr(),
+                count,
+            )
+        };
+        Self { raw }
+    }
+
+    /// Creates an `ENUM` `Value` from its logical type and the dictionary index.
+    #[inline]
+    #[must_use]
+    pub fn enum_value(logical_type: &LogicalType, index: u64) -> Self {
+        let raw = unsafe { libduckdb_sys::duckdb_create_enum_value(logical_type.as_raw(), index) };
+        Self { raw }
+    }
+
+    /// Returns the dictionary index of an `ENUM` `Value` (0 for non-ENUM values).
+    #[inline]
+    #[must_use]
+    pub fn as_enum_value(&self) -> u64 {
+        unsafe { libduckdb_sys::duckdb_get_enum_value(self.raw) }
+    }
+
+    /// Creates a `MAP` `Value` from its logical type and parallel key/value
+    /// slices. Takes ownership of each consumed `Value`.
+    #[must_use]
+    pub fn map_value(logical_type: &LogicalType, keys: Vec<Self>, values: Vec<Self>) -> Self {
+        let mut keys_raw: Vec<libduckdb_sys::duckdb_value> =
+            keys.into_iter().map(Self::into_raw).collect();
+        let mut vals_raw: Vec<libduckdb_sys::duckdb_value> =
+            values.into_iter().map(Self::into_raw).collect();
+        let count = libduckdb_sys::idx_t::try_from(keys_raw.len())
+            .unwrap_or(libduckdb_sys::idx_t::MAX);
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_map_value(
+                logical_type.as_raw(),
+                keys_raw.as_mut_ptr(),
+                vals_raw.as_mut_ptr(),
+                count,
+            )
+        };
+        Self { raw }
+    }
+
+    /// Creates a `UNION` `Value` from its logical type, the active member's
+    /// tag index, and the active member's `Value` (`DuckDB` 1.5+). Takes
+    /// ownership of `value`.
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub fn union_value(logical_type: &LogicalType, tag_index: u64, value: Self) -> Self {
+        let raw_val = Self::into_raw(value);
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_union_value(
+                logical_type.as_raw(),
+                libduckdb_sys::idx_t::try_from(tag_index).unwrap_or(libduckdb_sys::idx_t::MAX),
+                raw_val,
             )
         };
         Self { raw }
