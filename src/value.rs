@@ -35,10 +35,10 @@ use libduckdb_sys::{
     duckdb_create_time_ns, duckdb_get_time_ns, duckdb_time_ns, duckdb_value_to_string,
 };
 use libduckdb_sys::{
-    duckdb_destroy_value, duckdb_free, duckdb_get_bool, duckdb_get_double, duckdb_get_float,
-    duckdb_get_hugeint, duckdb_get_int16, duckdb_get_int32, duckdb_get_int64, duckdb_get_int8,
-    duckdb_get_uint16, duckdb_get_uint32, duckdb_get_uint64, duckdb_get_uint8, duckdb_get_varchar,
-    duckdb_value,
+    duckdb_blob, duckdb_destroy_value, duckdb_free, duckdb_get_blob, duckdb_get_bool,
+    duckdb_get_double, duckdb_get_float, duckdb_get_hugeint, duckdb_get_int16, duckdb_get_int32,
+    duckdb_get_int64, duckdb_get_int8, duckdb_get_uint16, duckdb_get_uint32, duckdb_get_uint64,
+    duckdb_get_uint8, duckdb_get_varchar, duckdb_value,
 };
 
 use crate::error::ExtensionError;
@@ -112,6 +112,41 @@ impl Value {
         // SAFETY: c_str was allocated by DuckDB and must be freed with duckdb_free.
         unsafe { duckdb_free(c_str.cast()) };
         result
+    }
+
+    /// Extracts the value as an owned `Vec<u8>` (`BLOB`), binary-safe.
+    ///
+    /// `DuckDB` allocates the blob's backing buffer; this method copies it into
+    /// an owned `Vec<u8>` and frees the original with `duckdb_free`. There is no
+    /// UTF-8 validation, so this is the correct way to read binary bind
+    /// parameters (e.g. a WKB geometry passed to a set-returning table function).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtensionError` if the value handle is null or `duckdb_get_blob`
+    /// returns a null data pointer for a non-empty size.
+    pub fn as_blob(&self) -> Result<Vec<u8>, ExtensionError> {
+        if self.raw.is_null() {
+            return Err(ExtensionError::new("Value is null"));
+        }
+        // SAFETY: self.raw is a valid duckdb_value per constructor contract.
+        let blob: duckdb_blob = unsafe { duckdb_get_blob(self.raw) };
+        if blob.data.is_null() {
+            return if blob.size == 0 {
+                Ok(Vec::new())
+            } else {
+                Err(ExtensionError::new("duckdb_get_blob returned null data"))
+            };
+        }
+        // SAFETY: blob.data is a DuckDB-allocated buffer of exactly `blob.size`
+        // bytes, valid until we free it below.
+        let slice = unsafe {
+            std::slice::from_raw_parts(blob.data.cast::<u8>(), usize::try_from(blob.size).unwrap_or(0))
+        };
+        let out = slice.to_vec();
+        // SAFETY: blob.data was allocated by DuckDB and must be freed with duckdb_free.
+        unsafe { duckdb_free(blob.data.cast()) };
+        Ok(out)
     }
 
     /// Extracts the value as an `i32` (INTEGER).
