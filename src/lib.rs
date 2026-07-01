@@ -197,3 +197,25 @@ pub mod table_description;
 ///
 /// See `LESSONS.md` → Pitfall P2 for full details.
 pub const DUCKDB_API_VERSION: &str = "v1.2.0";
+
+/// Returns the `DuckDB` library version string from the linked runtime
+/// (`duckdb_library_version`).
+///
+/// The returned string borrows from the `DuckDB` runtime and lives for the
+/// process lifetime — it must not be freed or modified.
+///
+/// # Safety
+///
+/// Requires the `DuckDB` runtime to be initialised (extension load path).
+#[must_use]
+pub unsafe fn library_version() -> &'static str {
+    // SAFETY: dispatch-table-backed helper; the returned C string is static.
+    let p = unsafe { libduckdb_sys::duckdb_library_version() };
+    if p.is_null() {
+        return "";
+    }
+    // SAFETY: DuckDB documents the returned string as statically owned.
+    unsafe { std::ffi::CStr::from_ptr(p) }
+        .to_str()
+        .unwrap_or("")
+}

@@ -373,6 +373,28 @@ impl VectorWriter {
         unsafe { self.write_varchar(idx, value) };
     }
 
+    /// Writes a NUL-terminated C string into row `idx` of a `VARCHAR` vector.
+    ///
+    /// This wraps `duckdb_vector_assign_string_element` (no length-prefixed form);
+    /// it requires the input to be NUL-terminated and truncates at the first
+    /// interior NUL byte. For binary-safe VARCHAR writes prefer
+    /// [`write_varchar`][Self::write_varchar] instead.
+    ///
+    /// # Safety
+    /// - `idx` must be within the vector's capacity.
+    /// - The vector must have `VARCHAR` type.
+    /// - `s` must not contain interior NUL bytes — they will truncate silently.
+    pub unsafe fn write_varchar_cstr(&mut self, idx: usize, s: &str) {
+        let c = std::ffi::CString::new(s).unwrap_or_else(|_| {
+            let pos = s.bytes().position(|b| b == 0).unwrap_or(s.len());
+            unsafe { std::ffi::CString::from_vec_with_nul_unchecked(s.as_bytes()[..pos].to_vec()) }
+        });
+        // SAFETY: self.vector is valid; c is NUL-terminated; idx in bounds per caller.
+        unsafe {
+            libduckdb_sys::duckdb_vector_assign_string_element(self.vector, idx as idx_t, c.as_ptr());
+        }
+    }
+
     /// Marks row `idx` as NULL in the output vector.
     ///
     /// # Pitfall L4: `ensure_validity_writable`

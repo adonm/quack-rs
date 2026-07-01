@@ -18,7 +18,8 @@
 
 use libduckdb_sys::{
     duckdb_validity_row_is_valid, duckdb_validity_set_row_invalid, duckdb_validity_set_row_valid,
-    duckdb_vector, duckdb_vector_ensure_validity_writable, duckdb_vector_get_validity, idx_t,
+    duckdb_validity_set_row_validity, duckdb_vector, duckdb_vector_ensure_validity_writable,
+    duckdb_vector_get_validity, idx_t,
 };
 
 /// A wrapper around a `DuckDB` validity bitmap for reading or writing NULL flags.
@@ -127,6 +128,22 @@ impl ValidityBitmap<'_> {
         );
         // SAFETY: Bitmap is writable and idx is in bounds.
         unsafe { duckdb_validity_set_row_valid(self.validity, idx) };
+    }
+
+    /// Sets the validity bit for row `idx` to `valid` (combined convenience
+    /// for [`set_row_valid`] / [`set_row_invalid`]).
+    ///
+    /// # Safety
+    ///
+    /// Same as [`set_row_valid`][Self::set_row_valid].
+    #[inline]
+    pub unsafe fn set_row_validity(&mut self, idx: idx_t, valid: bool) {
+        debug_assert!(
+            !self.validity.is_null(),
+            "set_row_validity called on a non-writable bitmap"
+        );
+        // SAFETY: Bitmap is writable and idx is in bounds.
+        unsafe { duckdb_validity_set_row_validity(self.validity, idx, valid) };
     }
 
     /// Returns the raw validity bitmap pointer.

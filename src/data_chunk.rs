@@ -189,6 +189,19 @@ impl DataChunk {
     pub const fn as_raw(&self) -> duckdb_data_chunk {
         self.raw
     }
+
+    /// Resets the chunk: clears all rows, resets the size to 0, and zeroes the
+    /// validity bitmaps / vectors. Useful when reusing an output chunk across
+    /// multiple scan invocations.
+    ///
+    /// # Safety
+    ///
+    /// Must be called on a valid output chunk; the chunk must not be in use by
+    /// another thread concurrently.
+    pub unsafe fn reset(&self) {
+        // SAFETY: self.raw is valid per constructor's contract.
+        unsafe { libduckdb_sys::duckdb_data_chunk_reset(self.raw) };
+    }
 }
 
 #[cfg(test)]

@@ -96,6 +96,52 @@ impl TableDescription {
         Ok(Self { desc })
     }
 
+    /// Like [`create`][Self::create] but accepts a fully-qualified
+    /// `catalog.schema.table` triple (useful for multi-catalog setups or
+    /// cross-database queries).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExtensionError`] if the table does not exist.
+    ///
+    /// # Safety
+    ///
+    /// `con` must be a valid, open `duckdb_connection`.
+    pub unsafe fn create_with_catalog(
+        con: duckdb_connection,
+        catalog: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<Self, ExtensionError> {
+        let c_catalog = CString::new(catalog)
+            .map_err(|_| ExtensionError::new("catalog name contains null byte"))?;
+        let c_schema = CString::new(schema)
+            .map_err(|_| ExtensionError::new("schema name contains null byte"))?;
+        let c_table = CString::new(table)
+            .map_err(|_| ExtensionError::new("table name contains null byte"))?;
+
+        let mut desc: duckdb_table_description = core::ptr::null_mut();
+        // SAFETY: con is valid; c_strings are NUL-terminated; desc is out-pointer.
+        let rc = unsafe {
+            libduckdb_sys::duckdb_table_description_create_ext(
+                con,
+                c_catalog.as_ptr(),
+                c_schema.as_ptr(),
+                c_table.as_ptr(),
+                &raw mut desc,
+            )
+        };
+        if rc != libduckdb_sys::DuckDBSuccess || desc.is_null() {
+            if !desc.is_null() {
+                unsafe { libduckdb_sys::duckdb_table_description_destroy(&raw mut desc) };
+            }
+            return Err(ExtensionError::new(format!(
+                "failed to describe table '{catalog}.{schema}.{table}'"
+            )));
+        }
+        Ok(Self { desc })
+    }
+
     /// Returns the number of columns in the table.
     #[must_use]
     pub fn column_count(&self) -> idx_t {
