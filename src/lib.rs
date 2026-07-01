@@ -139,6 +139,7 @@ pub mod interval;
 pub mod prelude;
 pub mod prim;
 pub mod prepared;
+pub mod profiling;
 pub mod replacement_scan;
 pub mod result;
 pub mod scaffold;

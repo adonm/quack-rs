@@ -301,6 +301,22 @@ impl Connection {
         // SAFETY: ctx is a fresh, owned client-context handle from `DuckDB`.
         unsafe { crate::client_context::ClientContext::from_raw(ctx) }
     }
+
+    /// Returns the root profiling-info handle for the most recently executed
+    /// query on this connection (`DuckDB` 1.5.0+).
+    ///
+    /// Returns `None` if no query has been profiled yet (or `DuckDB` returns a
+    /// null handle). The returned [`ProfilingInfo`][crate::profiling::ProfilingInfo]
+    /// borrows from this connection — it must not outlive it.
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn get_profiling_info(&self) -> Option<crate::profiling::ProfilingInfo> {
+        // SAFETY: self.con is valid; the returned handle is borrowed by the connection.
+        unsafe { crate::profiling::get_profiling_info(self.con) }
+    }
 }
 
 impl Registrar for Connection {
