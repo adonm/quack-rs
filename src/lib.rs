@@ -147,6 +147,7 @@ pub mod scalar;
 pub mod secrets;
 pub mod sql_macro;
 pub mod table;
+pub mod task;
 pub mod testing;
 pub mod tls;
 pub mod types;

@@ -317,6 +317,43 @@ impl Connection {
         // SAFETY: self.con is valid; the returned handle is borrowed by the connection.
         unsafe { crate::profiling::get_profiling_info(self.con) }
     }
+
+    /// Returns a progress snapshot for the currently-running query on this
+    /// connection (`DuckDB` 1.5.0+).
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn query_progress(&self) -> libduckdb_sys::duckdb_query_progress_type {
+        // SAFETY: self.con is valid per Connection invariant.
+        unsafe { crate::task::query_progress(self.con) }
+    }
+
+    /// Interrupts the currently-running query on this connection (`DuckDB` 1.5+).
+    /// The query will fail with an "interrupted" error on its next check.
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn interrupt(&self) {
+        // SAFETY: self.con is valid per Connection invariant.
+        unsafe { crate::task::interrupt(self.con) };
+    }
+
+    /// Returns `true` when the currently-running query on this connection has
+    /// finished (`DuckDB` 1.5+).
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    #[cfg(feature = "duckdb-1-5")]
+    #[must_use]
+    pub unsafe fn execution_is_finished(&self) -> bool {
+        // SAFETY: self.con is valid per Connection invariant.
+        unsafe { crate::task::execution_is_finished(self.con) }
+    }
 }
 
 impl Registrar for Connection {
