@@ -133,6 +133,7 @@ pub mod chunk_writer;
 pub mod config;
 pub mod connection;
 pub mod data_chunk;
+pub mod data_chunk_owned;
 pub mod entry_point;
 pub mod error;
 pub mod interval;
