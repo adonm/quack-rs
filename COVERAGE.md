@@ -24,35 +24,44 @@ comm -12 /tmp/api_sorted.txt /tmp/calls_sorted.txt | wc -l   # wrapped
 comm -23 /tmp/api_sorted.txt /tmp/calls_sorted.txt | wc -l   # gap
 ```
 
-## Current state (as of commit HEAD of `feat/c-api-full-coverage`)
+## Current state (as of the head of `feat/c-api-full-coverage`)
 
 | | Count | % |
 |---|---|---|
 | Total `duckdb_ext_api_v1` fields      | 428 | 100 |
-| Wrapped (invoked at least once)      | 322 | **75%** |
-| Intentionally unsupported (deprecated) | ~72 | 17% |
-| Pending follow-up                    | ~34 | 8% |
+| Wrapped (invoked at least once)      | 378 | **88%** |
+| Intentionally unsupported (deprecated) | 44 | 10% |
+| Pending follow-up / upstream-blocked | 4   | 1% |
 
-**Wrapped**: 322 of 428 ext-API fields are reachable through quack-rs
+**Wrapped**: 378 of 428 ext-API fields are reachable through quack-rs
 safe-Rust wrappers. This includes:
 - Scalar/aggregate/table/cast function builders and bind/init/data getters.
 - Vector read/write, complex (LIST/STRUCT/MAP/ARRAY), validity, plus
   `OwnedVector` (create/slice/reference) and `SelectionVector`.
 - Value typed constructors and accessors for every primitive and every
-  timestamp variant; compound navigation (`list_child`, `struct_child`,
-  `map_key`/`map_value`, `value_type`, `is_sql_null`, `display_string`).
+  timestamp variant; compound-type navigation (`list_child`, `struct_child`,
+  `map_at`/`map_key`, `value_type`, `is_sql_null`, `display_string`).
+- Compound-type constructors (`struct_value`, `list_value`, `array_value`,
+  `map_value`, `enum_value`, `union_value`, `bit`, `decimal`, `time`,
+  `time_tz`) plus the inverse `as_enum_value`.
 - Logical type constructors and child inspection for LIST/MAP/
   STRUCT/ARRAY/UNION/ENUM/DECIMAL.
 - Appender full lifecycle: typed `append_*`, `begin_row`/`end_row`,
-  `append_default`/`append_null`/`append_value`, column subset
+  `append_default`/`append_null`/`append_value`, column-subset
   management, metadata (`column_count`/`column_type`/`error_message`).
-- `PreparedStatement` + typed `bind_*` for all parameter shapes,
+- `PreparedStatement` + typed `bind_*` for every parameter shape,
   `execute`, `extract_and_prepare`, `Pending` async pipeline
-  (`pending_prepared`, `execute_task`, `check_state`, \
+  (`pending_prepared`, `execute_task`, `check_state`,
   `execute_pending`, `pending_error`).
 - `QueryResult` + `fetch_chunk`/`stream_fetch_chunk` + column metadata.
-- `ClientContext`, `InstanceCache`, `TableDescription::column_has_default`,
-  `Connection::get_table_names`/`get_client_context`.
+- `ClientContext`, `InstanceCache`, `TableDescription` (`column_has_default`,
+  `create_with_catalog`), `Connection::get_table_names`/`get_client_context`.
+- Primitive conversions (date/time/timestamp/hugeint/decimal/`string_t`).
+- `ProfilingInfo` tree walk (`metrics`/`value`/`child`).
+- `TaskState` RAII + connection-scoped async (`query_progress`/`interrupt`/
+  `execution_is_finished`).
+- `OwnedDataChunk` RAII chunk allocator.
+- Crate root helpers: `library_version()`.
 
 ## Intentionally unsupported (deprecated upstream)
 
@@ -76,19 +85,11 @@ yet. They are tracked as follow-up work.
 
 | Family | Fields | Why deferred |
 |---|---|---|
-| Profiling info | `duckdb_profiling_info_get_metrics`, `get_child_count`, `get_child`, `get_value`, `get_profiling_info` (`Connection`-scoped) | Useful for perf regression tests but no current sedona consumer; will wrap once a concrete need exists. |
-| Task state | `duckdb_create_task_state`, `execute_tasks`, `execute_tasks_state`, `execute_n_tasks_state`, `finish_execution`, `task_state_is_finished`, `destroy_task_state`, `execution_is_finished` | DuckDB's parallel table-scan path uses `init_set_max_threads` + `local_init` (both already wrapped); task-state is for manual scheduling which sedona doesn't require yet. |
-| Date/time/timestamp primitive conversions | `duckdb_from_date`, `to_date`, `is_finite_date`, `from_time`/`to_time`, `create_time_tz`, `from_time_tz`, `from_timestamp`/`to_timestamp`, `is_finite_timestamp`, `is_finite_timestamp_s/ms/ns`, `hugeint`<->`double`, `uhugeint`<->`double`, `decimal`<->`double` | Most extensions don't need to roundtrip these serialised struct layouts; `Value` already exposes them transparently via `as_*_raw` accessors. Wrap when a downstream caller needs them as primitives. |
-| `string_t` introspection | `duckdb_string_is_inlined`, `duckdb_string_t_length`, `duckdb_string_t_data` | Already used internally by `vector::string`; outer API surface not yet exposed because quack-rs prefers `VectorReader::read_str` over raw `duckdb_string_t` arithmetic. |
+| Profiling info (wrapped) | `Module: prof`iling` (ProfilingInfo wrapper + Connection accessor) | Wrapped. |
+| Task state (wrapped) | `Module: task` (TaskState + Connection async helpers) | Wrapped. |
+| Date/time/numeric primitive conversions (wrapped) | `Module: prim` | Wrapped. |
+| `string_t` introspection (wrapped) | `Module: prim` (`string_is_inlined`/`string_t_length`/`string_t_data`) | Wrapped. |
+| `OwnedDataChunk` (wrapped) | `Module: data_chunk_owned` | Wrapped. |
 | `duckdb_register_logical_type` | (single field) | The `duckdb_create_type_info` argument is opaque ("Reserved for future use" per `duckdb.h`) — no public API to construct one. Cannot be safely wrapped until upstream exposes its builder or marks it as a no-op pass-through. |
-
-## Bumping coverage further
-
-The path to 100% of *supported* `duckdb_ext_api_v1` is:
-1. Wrap the deprecated family with a `pkg(deprecated)` feature flag (low-risk
-   because they are existing C-API pathways, just slated for removal), OR
-2. Upstream-document them as out-of-scope per above (preferred).
-3. Wrap `register_logical_type` once `duckdb_create_type_info` has a real
-   builder API upstream.
-4. Wrap the profiling/task-state/primitive-conversion tracks once a sedona
-   use case materialises.
+| `duckdb_create_varint` / `duckdb_get_varint` | (2 fields) | Variably-sized integer type. Not yet exposed in `libduckdb-sys` 1.10504.0 — the C API has the typedef but the dispatch-table function pointer slots are `None` at 1.4.x runtime. Will wrap once `libduckdb-sys` resolves the symbols across the version range. |
+| `duckdb_malloc` | (single field) | C allocator helper. All quack-rs allocation uses the Rust allocator and `duckdb_free` for `DuckDB`-owned buffers; wrapping the standalone allocator would invite mixed-allocator UB. Prefer `std::alloc` from Rust. |
