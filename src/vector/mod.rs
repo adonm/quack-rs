@@ -20,6 +20,8 @@
 //!   and pointer (>12 bytes) cases.
 
 pub mod complex;
+#[cfg(feature = "duckdb-1-5")]
+pub mod owned;
 pub mod reader;
 pub mod string;
 pub mod struct_reader;
@@ -27,6 +29,8 @@ pub mod struct_writer;
 pub mod validity;
 pub mod writer;
 
+#[cfg(feature = "duckdb-1-5")]
+pub use owned::OwnedVector;
 pub use reader::VectorReader;
 pub use string::{read_duck_blob, read_duck_string, DuckStringView};
 pub use struct_reader::StructReader;
