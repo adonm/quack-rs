@@ -253,6 +253,54 @@ impl Connection {
             ReplacementScanBuilder::register_with_data(self.db, callback, data);
         }
     }
+
+    /// Returns the list of table names referenced by `query` as a `DuckDB`
+    /// `LIST` `Value` of `VARCHAR`s (`DuckDB` 1.5.0+).
+    ///
+    /// Each entry is a fully qualified (`catalog.schema.table`) name when
+    /// `qualified` is `true`, otherwise bare `table` names. Use
+    /// [`Value::list_size`][crate::value::Value::list_size] /
+    /// [`Value::list_child`][crate::value::Value::list_child] to enumerate the
+    /// returned names; the returned [`Value`] is RAII-managed.
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    /// If `query` contains an interior `NUL` byte it is truncated at that point.
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn get_table_names(&self, query: &str, qualified: bool) -> crate::value::Value {
+        // SAFETY: CString::new never panics thanks to the truncation below.
+        let c_query = std::ffi::CString::new(query).unwrap_or_else(|_| {
+            let pos = query.bytes().position(|b| b == 0).unwrap_or(query.len());
+            // SAFETY: pos is at the first null byte, so query[..pos] has no nulls.
+            std::ffi::CString::new(&query.as_bytes()[..pos]).unwrap_or_default()
+        });
+        // SAFETY: self.con is valid; c_query is a valid NUL-terminated C string.
+        let raw = unsafe {
+            libduckdb_sys::duckdb_get_table_names(self.con, c_query.as_ptr(), qualified)
+        };
+        // SAFETY: raw is a fresh, owned duckdb_value returned by `DuckDB`.
+        unsafe { crate::value::Value::from_raw(raw) }
+    }
+
+    /// Returns this connection's [`ClientContext`] handle (`DuckDB` 1.5.0+).
+    ///
+    /// The `ClientContext` exposes connection-scoped catalog access,
+    /// configuration queries, and the connection ID.
+    ///
+    /// # Safety
+    ///
+    /// The underlying connection must be valid (requires `DuckDB` runtime).
+    /// The returned `ClientContext` borrows from this `Connection`; do not
+    /// keep it past the connection's lifetime.
+    #[cfg(feature = "duckdb-1-5")]
+    pub unsafe fn get_client_context(&self) -> crate::client_context::ClientContext {
+        let mut ctx: libduckdb_sys::duckdb_client_context = core::ptr::null_mut();
+        // SAFETY: self.con is valid; this writes a fresh handle into ctx.
+        unsafe { libduckdb_sys::duckdb_connection_get_client_context(self.con, &raw mut ctx) };
+        // SAFETY: ctx is a fresh, owned client-context handle from `DuckDB`.
+        unsafe { crate::client_context::ClientContext::from_raw(ctx) }
+    }
 }
 
 impl Registrar for Connection {

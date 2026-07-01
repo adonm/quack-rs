@@ -141,6 +141,24 @@ impl TableDescription {
         }
     }
 
+    /// Returns `true` if the column at `index` has a `DEFAULT` expression.
+    ///
+    /// Returns `None` if the index is out of bounds or if `DuckDB` rejects the
+    /// call (e.g. the table description was created with an error).
+    #[must_use]
+    pub fn column_has_default(&self, index: idx_t) -> Option<bool> {
+        let mut out: bool = false;
+        // SAFETY: self.desc is valid; out is a valid out-pointer for one bool.
+        let rc = unsafe {
+            libduckdb_sys::duckdb_column_has_default(self.desc, index, &raw mut out)
+        };
+        if rc == libduckdb_sys::DuckDBSuccess {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
     /// Returns the raw `duckdb_table_description` handle without consuming the
     /// wrapper. The wrapper retains ownership and destroys it on drop.
     #[inline]
