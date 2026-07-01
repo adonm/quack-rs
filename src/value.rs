@@ -30,18 +30,37 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
+use crate::error::ExtensionError;
+use crate::types::LogicalType;
 #[cfg(feature = "duckdb-1-5")]
 use libduckdb_sys::{
     duckdb_create_time_ns, duckdb_get_time_ns, duckdb_time_ns, duckdb_value_to_string,
 };
 use libduckdb_sys::{
-    duckdb_blob, duckdb_destroy_value, duckdb_free, duckdb_get_blob, duckdb_get_bool,
+    duckdb_blob, duckdb_date, duckdb_decimal, duckdb_destroy_value, duckdb_free,
+    duckdb_get_bit, duckdb_get_blob, duckdb_get_bool, duckdb_get_date, duckdb_get_decimal,
     duckdb_get_double, duckdb_get_float, duckdb_get_hugeint, duckdb_get_int16, duckdb_get_int32,
-    duckdb_get_int64, duckdb_get_int8, duckdb_get_uint16, duckdb_get_uint32, duckdb_get_uint64,
-    duckdb_get_uint8, duckdb_get_varchar, duckdb_value,
+    duckdb_get_int64, duckdb_get_int8, duckdb_get_interval, duckdb_get_list_child,
+    duckdb_get_list_size, duckdb_get_map_key, duckdb_get_map_size, duckdb_get_map_value,
+    duckdb_get_struct_child, duckdb_get_time, duckdb_get_timestamp, duckdb_get_uhugeint,
+    duckdb_get_uint16, duckdb_get_uint32, duckdb_get_uint64, duckdb_get_uint8, duckdb_get_uuid,
+    duckdb_get_value_type, duckdb_get_varchar, duckdb_hugeint, duckdb_interval,
+    duckdb_is_null_value, duckdb_time, duckdb_timestamp, duckdb_uhugeint, duckdb_value,
 };
-
-use crate::error::ExtensionError;
+#[cfg(feature = "duckdb-1-5")]
+use libduckdb_sys::{
+    duckdb_create_timestamp_s, duckdb_create_timestamp_ms, duckdb_create_timestamp_ns,
+    duckdb_create_timestamp_tz, duckdb_get_time_tz, duckdb_get_timestamp_ms,
+    duckdb_get_timestamp_ns, duckdb_get_timestamp_s, duckdb_get_timestamp_tz, duckdb_time_tz,
+    duckdb_timestamp_ms, duckdb_timestamp_ns, duckdb_timestamp_s,
+};
+use libduckdb_sys::{
+    duckdb_create_bool, duckdb_create_date, duckdb_create_double, duckdb_create_float,
+    duckdb_create_hugeint, duckdb_create_int16, duckdb_create_int32, duckdb_create_int64,
+    duckdb_create_int8, duckdb_create_interval, duckdb_create_null_value, duckdb_create_timestamp,
+    duckdb_create_uint16, duckdb_create_uint32, duckdb_create_uint64, duckdb_create_uint8,
+    duckdb_create_uhugeint, duckdb_create_uuid, duckdb_create_varchar,
+};
 
 /// An owned, RAII-managed `DuckDB` value.
 ///
@@ -59,12 +78,12 @@ use crate::error::ExtensionError;
 /// # Extraction
 ///
 /// Use typed accessors to extract the underlying data:
-/// - [`as_str`][Value::as_str] — VARCHAR → `String`
-/// - [`as_i32`][Value::as_i32] — INTEGER → `i32`
-/// - [`as_i64`][Value::as_i64] — BIGINT → `i64`
-/// - [`as_f32`][Value::as_f32] — FLOAT → `f32`
-/// - [`as_f64`][Value::as_f64] — DOUBLE → `f64`
-/// - [`as_bool`][Value::as_bool] — BOOLEAN → `bool`
+/// - [`as_str`][Value::as_str] — `VARCHAR` → `String`
+/// - [`as_i32`][Value::as_i32] — `INTEGER` → `i32`
+/// - [`as_i64`][Value::as_i64] — `BIGINT` → `i64`
+/// - [`as_f32`][Value::as_f32] — `FLOAT` → `f32`
+/// - [`as_f64`][Value::as_f64] — `DOUBLE` → `f64`
+/// - [`as_bool`][Value::as_bool] — `BOOLEAN` → `bool`
 pub struct Value {
     raw: duckdb_value,
 }
@@ -86,7 +105,7 @@ impl Value {
         Self { raw }
     }
 
-    /// Extracts the value as a `String` (VARCHAR).
+    /// Extracts the value as a `String` (`VARCHAR`).
     ///
     /// Internally calls `duckdb_get_varchar` and frees the returned C string
     /// with `duckdb_free`. Returns an error if the string is not valid UTF-8
@@ -149,9 +168,9 @@ impl Value {
         Ok(out)
     }
 
-    /// Extracts the value as an `i32` (INTEGER).
+    /// Extracts the value as an `i32` (`INTEGER`).
     ///
-    /// `DuckDB` will attempt to cast the value to INTEGER. If the value is not
+    /// `DuckDB` will attempt to cast the value to `INTEGER`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -160,9 +179,9 @@ impl Value {
         unsafe { duckdb_get_int32(self.raw) }
     }
 
-    /// Extracts the value as an `i64` (BIGINT).
+    /// Extracts the value as an `i64` (`BIGINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to BIGINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `BIGINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -171,9 +190,9 @@ impl Value {
         unsafe { duckdb_get_int64(self.raw) }
     }
 
-    /// Extracts the value as an `f32` (FLOAT).
+    /// Extracts the value as an `f32` (`FLOAT`).
     ///
-    /// `DuckDB` will attempt to cast the value to FLOAT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `FLOAT`. If the value is not
     /// numeric, this returns 0.0.
     #[inline]
     #[must_use]
@@ -182,9 +201,9 @@ impl Value {
         unsafe { duckdb_get_float(self.raw) }
     }
 
-    /// Extracts the value as an `f64` (DOUBLE).
+    /// Extracts the value as an `f64` (`DOUBLE`).
     ///
-    /// `DuckDB` will attempt to cast the value to DOUBLE. If the value is not
+    /// `DuckDB` will attempt to cast the value to `DOUBLE`. If the value is not
     /// numeric, this returns 0.0.
     #[inline]
     #[must_use]
@@ -193,9 +212,9 @@ impl Value {
         unsafe { duckdb_get_double(self.raw) }
     }
 
-    /// Extracts the value as a `bool` (BOOLEAN).
+    /// Extracts the value as a `bool` (`BOOLEAN`).
     ///
-    /// `DuckDB` will attempt to cast the value to BOOLEAN. If the value is not
+    /// `DuckDB` will attempt to cast the value to `BOOLEAN`. If the value is not
     /// convertible, this returns `false`.
     #[inline]
     #[must_use]
@@ -204,9 +223,9 @@ impl Value {
         unsafe { duckdb_get_bool(self.raw) }
     }
 
-    /// Extracts the value as an `i8` (TINYINT).
+    /// Extracts the value as an `i8` (`TINYINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to TINYINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `TINYINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -215,9 +234,9 @@ impl Value {
         unsafe { duckdb_get_int8(self.raw) }
     }
 
-    /// Extracts the value as an `i16` (SMALLINT).
+    /// Extracts the value as an `i16` (`SMALLINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to SMALLINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `SMALLINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -226,9 +245,9 @@ impl Value {
         unsafe { duckdb_get_int16(self.raw) }
     }
 
-    /// Extracts the value as a `u8` (UTINYINT).
+    /// Extracts the value as a `u8` (`UTINYINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to UTINYINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `UTINYINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -237,9 +256,9 @@ impl Value {
         unsafe { duckdb_get_uint8(self.raw) }
     }
 
-    /// Extracts the value as a `u16` (USMALLINT).
+    /// Extracts the value as a `u16` (`USMALLINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to USMALLINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `USMALLINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -248,9 +267,9 @@ impl Value {
         unsafe { duckdb_get_uint16(self.raw) }
     }
 
-    /// Extracts the value as a `u32` (UINTEGER).
+    /// Extracts the value as a `u32` (`UINTEGER`).
     ///
-    /// `DuckDB` will attempt to cast the value to UINTEGER. If the value is not
+    /// `DuckDB` will attempt to cast the value to `UINTEGER`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -259,9 +278,9 @@ impl Value {
         unsafe { duckdb_get_uint32(self.raw) }
     }
 
-    /// Extracts the value as a `u64` (UBIGINT).
+    /// Extracts the value as a `u64` (`UBIGINT`).
     ///
-    /// `DuckDB` will attempt to cast the value to UBIGINT. If the value is not
+    /// `DuckDB` will attempt to cast the value to `UBIGINT`. If the value is not
     /// numeric, this returns 0.
     #[inline]
     #[must_use]
@@ -270,18 +289,16 @@ impl Value {
         unsafe { duckdb_get_uint64(self.raw) }
     }
 
-    /// Extracts the value as an `i128` (HUGEINT).
+    /// Extracts the value as an `i128` (`HUGEINT`).
     ///
-    /// `DuckDB` returns HUGEINT as `{ lower: u64, upper: i64 }`. This method
+    /// `DuckDB` returns `HUGEINT` as `{ lower: u64, upper: i64 }`. This method
     /// reconstructs the full `i128` value.
     #[inline]
     #[must_use]
     pub fn as_i128(&self) -> i128 {
         // SAFETY: self.raw is valid per constructor contract.
         let h = unsafe { duckdb_get_hugeint(self.raw) };
-        #[allow(clippy::cast_lossless)]
-        let result = (h.upper as i128) << 64 | (h.lower as i128);
-        result
+        i128::from(h.upper) << 64 | i128::from(h.lower)
     }
 
     /// Extracts the value as a `String`, returning `default` on failure.
@@ -465,7 +482,7 @@ impl Value {
     ///
     /// Returns `None` if the handle is null or the rendered text is not valid
     /// UTF-8. This is primarily useful for diagnostics and error messages, where
-    /// it works for any value type (not just VARCHAR).
+    /// it works for any value type (not just `VARCHAR`).
     #[cfg(feature = "duckdb-1-5")]
     #[must_use]
     pub fn display_string(&self) -> Option<String> {
@@ -485,6 +502,279 @@ impl Value {
         // SAFETY: c_str was allocated by DuckDB and must be freed with duckdb_free.
         unsafe { duckdb_free(c_str.cast()) };
         result
+    }
+
+    // === Date / time / interval accessors ===
+
+    /// Extracts the value as a `duckdb_date` (`{ days: i32 }` since the epoch).
+    ///
+    /// `DuckDB` will attempt to cast the value to `DATE`. Returns 0 if not convertible.
+    #[inline]
+    #[must_use]
+    pub fn as_date_raw(&self) -> duckdb_date {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_date(self.raw) }
+    }
+
+    /// Extracts the value as a `duckdb_time` (`{ micros: i64 }` since midnight).
+    ///
+    /// `DuckDB` will attempt to cast the value to `TIME`. Returns 0 if not convertible.
+    #[inline]
+    #[must_use]
+    pub fn as_time_raw(&self) -> duckdb_time {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_time(self.raw) }
+    }
+
+    /// Extracts the value as a `duckdb_timestamp` (`{ micros: i64 }` since the epoch).
+    ///
+    /// `DuckDB` will attempt to cast the value to `TIMESTAMP`. Returns 0 if not convertible.
+    #[inline]
+    #[must_use]
+    pub fn as_timestamp_raw(&self) -> duckdb_timestamp {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_timestamp(self.raw) }
+    }
+
+    /// Extracts the value as an `INTERVAL` (`{ months, days, micros }`).
+    #[inline]
+    #[must_use]
+    pub fn as_interval_raw(&self) -> duckdb_interval {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_interval(self.raw) }
+    }
+
+    /// Extracts the value as a `u128` (`UHUGEINT`).
+    ///
+    /// `DuckDB` returns `UHUGEINT` as `{ lower: u64, upper: u64 }`.
+    #[inline]
+    #[must_use]
+    pub fn as_u128(&self) -> u128 {
+        // SAFETY: self.raw is valid per constructor contract.
+        let h = unsafe { duckdb_get_uhugeint(self.raw) };
+        u128::from(h.lower) | (u128::from(h.upper) << 64)
+    }
+
+    /// Extracts the value as a `DECIMAL` (`{ width, scale, value: hugeint }`).
+    #[inline]
+    #[must_use]
+    pub fn as_decimal_raw(&self) -> duckdb_decimal {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_decimal(self.raw) }
+    }
+
+    /// Extracts the value as a `UUID` (`duckdb_uhugeint` → `u128`).
+    #[inline]
+    #[must_use]
+    pub fn as_uuid(&self) -> u128 {
+        // SAFETY: self.raw is valid per constructor contract.
+        let h = unsafe { duckdb_get_uuid(self.raw) };
+        u128::from(h.lower) | (u128::from(h.upper) << 64)
+    }
+
+    /// Extracts the value as a BIT — `(padding_byte, padded_data)`.
+    ///
+    /// `DuckDB` returns `duckdb_bit { data: *mut u8, size: idx_t }`; the first byte
+    /// holds the number of padding bits (0..7) and the remaining `size-1` bytes
+    /// are the big-endian bit vector, MSB first. Returns an owned `Vec<u8>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtensionError` if the handle is null or `data` is null for a non-empty size.
+    pub fn as_bit(&self) -> Result<Vec<u8>, ExtensionError> {
+        if self.raw.is_null() {
+            return Err(ExtensionError::new("Value is null"));
+        }
+        // SAFETY: self.raw is valid per constructor contract.
+        let bit: libduckdb_sys::duckdb_bit = unsafe { duckdb_get_bit(self.raw) };
+        if bit.data.is_null() {
+            return if bit.size == 0 {
+                Ok(Vec::new())
+            } else {
+                Err(ExtensionError::new("duckdb_get_bit returned null data"))
+            };
+        }
+        // SAFETY: bit.data is a DuckDB-allocated buffer of exactly `bit.size` bytes.
+        let slice = unsafe {
+            std::slice::from_raw_parts(bit.data.cast::<u8>(), usize::try_from(bit.size).unwrap_or(0))
+        };
+        let out = slice.to_vec();
+        // SAFETY: bit.data was allocated by DuckDB and must be freed with duckdb_free.
+        unsafe { duckdb_free(bit.data.cast()) };
+        Ok(out)
+    }
+
+    // === Timestamp variants (TIME_TZ, TIMESTAMP_S/MS/NS) ===
+
+    /// Extracts the value as a `TIME_TZ` (`{ bits: u64 }` → microseconds + offset).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn as_time_tz_raw(&self) -> duckdb_time_tz {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_time_tz(self.raw) }
+    }
+
+    /// Extracts the value as a `TIMESTAMP_TZ` (micros since epoch, same layout as `duckdb_timestamp`).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn as_timestamp_tz_raw(&self) -> duckdb_timestamp {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_timestamp_tz(self.raw) }
+    }
+
+    /// Extracts the value as a `TIMESTAMP_S` (`{ seconds: i64 }` since the epoch).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn as_timestamp_s_raw(&self) -> duckdb_timestamp_s {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_timestamp_s(self.raw) }
+    }
+
+    /// Extracts the value as a `TIMESTAMP_MS` (`{ millis: i64 }` since the epoch).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn as_timestamp_ms_raw(&self) -> duckdb_timestamp_ms {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_timestamp_ms(self.raw) }
+    }
+
+    /// Extracts the value as a `TIMESTAMP_NS` (`{ nanos: i64 }` since the epoch).
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn as_timestamp_ns_raw(&self) -> duckdb_timestamp_ns {
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_get_timestamp_ns(self.raw) }
+    }
+
+    // === Compound-type navigation ===
+
+    /// Returns the logical type of this value (RAII `LogicalType`).
+    ///
+    /// Returns `None` if the underlying handle is null.
+    #[must_use]
+    pub fn value_type(&self) -> Option<LogicalType> {
+        if self.raw.is_null() {
+            return None;
+        }
+        // SAFETY: self.raw is valid per constructor contract.
+        let raw = unsafe { duckdb_get_value_type(self.raw) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { LogicalType::from_raw(raw) })
+    }
+
+    /// Returns `true` if this value is `SQL NULL`.
+    ///
+    /// `DuckDB` distinguishes the `SQL NULL` marker from non-null values of any type;
+    /// this is *not* the same as a null `Value` handle (see [`is_null`][Value::is_null]).
+    #[inline]
+    #[must_use]
+    pub fn is_sql_null(&self) -> bool {
+        if self.raw.is_null() {
+            return false;
+        }
+        // SAFETY: self.raw is valid per constructor contract.
+        unsafe { duckdb_is_null_value(self.raw) }
+    }
+
+    /// Returns the number of entries in a MAP value.
+    ///
+    /// Returns 0 for non-MAP values or a null handle.
+    #[inline]
+    #[must_use]
+    pub fn map_size(&self) -> usize {
+        if self.raw.is_null() {
+            return 0;
+        }
+        // SAFETY: self.raw is valid per constructor contract.
+        usize::try_from(unsafe { duckdb_get_map_size(self.raw) }).unwrap_or(0)
+    }
+
+    /// Returns the key at `index` of a MAP value as an owned `Value`.
+    ///
+    /// Returns `None` if the handle is null, the value is not a MAP, or the index is out of bounds.
+    #[must_use]
+    pub fn map_key(&self, index: usize) -> Option<Self> {
+        if self.raw.is_null() {
+            return None;
+        }
+        let idx = libduckdb_sys::idx_t::try_from(index).ok()?;
+        // SAFETY: self.raw is valid per constructor contract; DuckDB returns a fresh owned value.
+        let raw = unsafe { duckdb_get_map_key(self.raw, idx) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { Self::from_raw(raw) })
+    }
+
+    /// Returns the value at `index` of a MAP value as an owned `Value`.
+    ///
+    /// Returns `None` if the handle is null, the value is not a MAP, or the index is out of bounds.
+    #[must_use]
+    pub fn map_value(&self, index: usize) -> Option<Self> {
+        if self.raw.is_null() {
+            return None;
+        }
+        let idx = libduckdb_sys::idx_t::try_from(index).ok()?;
+        // SAFETY: self.raw is valid per constructor contract; DuckDB returns a fresh owned value.
+        let raw = unsafe { duckdb_get_map_value(self.raw, idx) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { Self::from_raw(raw) })
+    }
+
+    /// Returns the number of children in a LIST value.
+    ///
+    /// Returns 0 for non-LIST values or a null handle.
+    #[inline]
+    #[must_use]
+    pub fn list_size(&self) -> usize {
+        if self.raw.is_null() {
+            return 0;
+        }
+        // SAFETY: self.raw is valid per constructor contract.
+        usize::try_from(unsafe { duckdb_get_list_size(self.raw) }).unwrap_or(0)
+    }
+
+    /// Returns the child at `index` of a LIST value as an owned `Value`.
+    ///
+    /// Returns `None` if the handle is null, the value is not a LIST, or the index is out of bounds.
+    #[must_use]
+    pub fn list_child(&self, index: usize) -> Option<Self> {
+        if self.raw.is_null() {
+            return None;
+        }
+        let idx = libduckdb_sys::idx_t::try_from(index).ok()?;
+        // SAFETY: self.raw is valid per constructor contract; DuckDB returns a fresh owned value.
+        let raw = unsafe { duckdb_get_list_child(self.raw, idx) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { Self::from_raw(raw) })
+    }
+
+    /// Returns the child at `index` of a STRUCT value as an owned `Value`.
+    ///
+    /// Returns `None` if the handle is null, the value is not a STRUCT, or the index is out of bounds.
+    #[must_use]
+    pub fn struct_child(&self, index: usize) -> Option<Self> {
+        if self.raw.is_null() {
+            return None;
+        }
+        let idx = libduckdb_sys::idx_t::try_from(index).ok()?;
+        // SAFETY: self.raw is valid per constructor contract; DuckDB returns a fresh owned value.
+        let raw = unsafe { duckdb_get_struct_child(self.raw, idx) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { Self::from_raw(raw) })
     }
 
     /// Returns `true` if the underlying handle is null.
@@ -513,6 +803,265 @@ impl Value {
         let raw = self.raw;
         std::mem::forget(self);
         raw
+    }
+
+    // === Typed constructors (raw → owned Value) ===
+
+    /// Creates a `BOOLEAN` `Value` from a `bool`.
+    #[inline]
+    #[must_use]
+    pub fn boolean(v: bool) -> Self {
+        // SAFETY: duckdb_create_bool accepts any bool and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_bool(v) };
+        Self { raw }
+    }
+
+    /// Creates a `VARCHAR` `Value` from a Rust string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s` contains an interior `NUL` byte (`\0`), as `DuckDB` `VARCHAR`
+    /// is `NUL`-terminated.
+    #[must_use]
+    pub fn varchar(s: &str) -> Self {
+        // SAFETY: duckdb_create_varchar copies the C string into an owned value.
+        let raw = unsafe {
+            duckdb_create_varchar(
+                std::ffi::CString::new(s).expect("varchar contains a NUL byte").as_ptr(),
+            )
+        };
+        Self { raw }
+    }
+
+    /// Creates an `i8` (`TINYINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn tinyint(v: i8) -> Self {
+        // SAFETY: duckdb_create_int8 accepts any i8 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_int8(v) };
+        Self { raw }
+    }
+
+    /// Creates an `i16` (`SMALLINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn smallint(v: i16) -> Self {
+        // SAFETY: duckdb_create_int16 accepts any i16 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_int16(v) };
+        Self { raw }
+    }
+
+    /// Creates an `i32` (`INTEGER`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn integer(v: i32) -> Self {
+        // SAFETY: duckdb_create_int32 accepts any i32 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_int32(v) };
+        Self { raw }
+    }
+
+    /// Creates an `i64` (`BIGINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn bigint(v: i64) -> Self {
+        // SAFETY: duckdb_create_int64 accepts any i64 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_int64(v) };
+        Self { raw }
+    }
+
+    /// Creates an `i128` (`HUGEINT`) `Value` from its `{lower, upper}` halves.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    pub fn hugeint(v: i128) -> Self {
+        // SAFETY: duckdb_create_hugeint accepts any {lower, upper} pair and returns
+        // an owned duckdb_value.
+        let h = duckdb_hugeint {
+            lower: v as u64,
+            upper: (v >> 64) as i64,
+        };
+        let raw = unsafe { duckdb_create_hugeint(h) };
+        Self { raw }
+    }
+
+    /// Creates a `u8` (`UTINYINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn utinyint(v: u8) -> Self {
+        // SAFETY: duckdb_create_uint8 accepts any u8 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_uint8(v) };
+        Self { raw }
+    }
+
+    /// Creates a `u16` (`USMALLINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn usmallint(v: u16) -> Self {
+        // SAFETY: duckdb_create_uint16 accepts any u16 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_uint16(v) };
+        Self { raw }
+    }
+
+    /// Creates a `u32` (`UINTEGER`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn uinteger(v: u32) -> Self {
+        // SAFETY: duckdb_create_uint32 accepts any u32 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_uint32(v) };
+        Self { raw }
+    }
+
+    /// Creates a `u64` (`UBIGINT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn ubigint(v: u64) -> Self {
+        // SAFETY: duckdb_create_uint64 accepts any u64 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_uint64(v) };
+        Self { raw }
+    }
+
+    /// Creates a `u128` (`UHUGEINT`) `Value` from its `{lower, upper}` halves.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn uhugeint(v: u128) -> Self {
+        // SAFETY: duckdb_create_uhugeint accepts any {lower, upper} pair and returns
+        // an owned duckdb_value.
+        let h = duckdb_uhugeint {
+            lower: v as u64,
+            upper: (v >> 64) as u64,
+        };
+        let raw = unsafe { duckdb_create_uhugeint(h) };
+        Self { raw }
+    }
+
+    /// Creates an `f32` (`FLOAT`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn float(v: f32) -> Self {
+        // SAFETY: duckdb_create_float accepts any f32 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_float(v) };
+        Self { raw }
+    }
+
+    /// Creates an `f64` (`DOUBLE`) `Value`.
+    #[inline]
+    #[must_use]
+    pub fn double(v: f64) -> Self {
+        // SAFETY: duckdb_create_double accepts any f64 and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_double(v) };
+        Self { raw }
+    }
+
+    /// Creates a `DATE` `Value` from a `duckdb_date` (`{ days: i32 }` since epoch).
+    #[inline]
+    #[must_use]
+    pub fn date(v: duckdb_date) -> Self {
+        // SAFETY: duckdb_create_date accepts any {days} and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_date(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIMESTAMP` `Value` from a `duckdb_timestamp` (`{ micros: i64 }`).
+    #[inline]
+    #[must_use]
+    pub fn timestamp(v: duckdb_timestamp) -> Self {
+        // SAFETY: duckdb_create_timestamp accepts any micros and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_timestamp(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIMESTAMP_TZ` `Value` from a `duckdb_timestamp` `DuckDB` 1.5.0+.
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn timestamp_tz(v: duckdb_timestamp) -> Self {
+        // SAFETY: duckdb_create_timestamp_tz accepts any micros and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_timestamp_tz(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIMESTAMP_S` `Value` from a `duckdb_timestamp_s` `DuckDB` 1.5.0+.
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn timestamp_s(v: duckdb_timestamp_s) -> Self {
+        // SAFETY: duckdb_create_timestamp_s accepts any {seconds} and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_timestamp_s(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIMESTAMP_MS` `Value` from a `duckdb_timestamp_ms` `DuckDB` 1.5.0+.
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn timestamp_ms(v: duckdb_timestamp_ms) -> Self {
+        // SAFETY: duckdb_create_timestamp_ms accepts any {millis} and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_timestamp_ms(v) };
+        Self { raw }
+    }
+
+    /// Creates a `TIMESTAMP_NS` `Value` from a `duckdb_timestamp_ns` `DuckDB` 1.5.0+.
+    #[cfg(feature = "duckdb-1-5")]
+    #[inline]
+    #[must_use]
+    pub fn timestamp_ns(v: duckdb_timestamp_ns) -> Self {
+        // SAFETY: duckdb_create_timestamp_ns accepts any {nanos} and returns an owned duckdb_value.
+        let raw = unsafe { duckdb_create_timestamp_ns(v) };
+        Self { raw }
+    }
+
+    /// Creates an `INTERVAL` `Value` from `{ months, days, micros }`.
+    #[inline]
+    #[must_use]
+    pub fn interval(months: i32, days: i32, micros: i64) -> Self {
+        // SAFETY: duckdb_create_interval accepts any {months, days, micros} triple
+        // and returns an owned duckdb_value.
+        let raw = unsafe {
+            duckdb_create_interval(duckdb_interval {
+                months,
+                days,
+                micros,
+            })
+        };
+        Self { raw }
+    }
+
+    /// Creates a `UUID` `Value` from a `u128`.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn uuid(v: u128) -> Self {
+        // SAFETY: duckdb_create_uuid accepts any {lower, upper} pair and returns
+        // an owned duckdb_value.
+        let h = duckdb_uhugeint {
+            lower: v as u64,
+            upper: (v >> 64) as u64,
+        };
+        let raw = unsafe { duckdb_create_uuid(h) };
+        Self { raw }
+    }
+
+    /// Creates a `SQL NULL` `Value` (the NULL marker, distinct from a null handle).
+    #[inline]
+    #[must_use]
+    pub fn sql_null() -> Self {
+        // SAFETY: duckdb_create_null_value returns an owned duckdb_value representing SQL NULL.
+        let raw = unsafe { duckdb_create_null_value() };
+        Self { raw }
+    }
+
+    /// Creates a `BLOB` `Value` from raw bytes.
+    #[must_use]
+    pub fn blob(data: &[u8]) -> Self {
+        // SAFETY: duckdb_create_blob copies the buffer into an owned duckdb_value.
+        let raw = unsafe {
+            libduckdb_sys::duckdb_create_blob(
+                data.as_ptr(),
+                libduckdb_sys::idx_t::try_from(data.len()).unwrap_or(libduckdb_sys::idx_t::MAX),
+            )
+        };
+        Self { raw }
     }
 }
 
