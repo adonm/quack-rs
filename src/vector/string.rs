@@ -184,6 +184,31 @@ pub unsafe fn read_duck_string<'a>(data: *const u8, idx: usize) -> &'a str {
     DuckStringView::from_bytes(raw_bytes).as_str().unwrap_or("")
 }
 
+/// Reads a `DuckDB` `BLOB` (binary) value at the given row index, returning the
+/// **raw bytes** without UTF-8 validation.
+///
+/// This is the binary-safe counterpart of [`read_duck_string`]: `read_duck_string`
+/// validates UTF-8 and substitutes an empty string on failure, which silently
+/// drops non-UTF-8 `BLOB` content (e.g. ISO-WKB coordinates). This function
+/// never inspects the bytes. `BLOB` and `VARCHAR` share the same `duckdb_string_t`
+/// layout (inline for ≤ 12 bytes, pointer otherwise).
+///
+/// # Safety
+///
+/// - `data` must point at a `DuckDB` BLOB (or VARCHAR) vector's data buffer.
+/// - `idx` must be within bounds of the vector.
+/// - For pointer-format blobs, the heap data must be valid for the lifetime of
+///   the returned slice.
+pub unsafe fn read_duck_blob<'a>(data: *const u8, idx: usize) -> &'a [u8] {
+    // SAFETY: each duckdb_string_t is exactly DUCK_STRING_SIZE bytes.
+    let str_ptr = unsafe { data.add(idx * DUCK_STRING_SIZE) };
+    let raw_bytes: &'a [u8; DUCK_STRING_SIZE] =
+        unsafe { &*str_ptr.cast::<[u8; DUCK_STRING_SIZE]>() };
+    DuckStringView::from_bytes(raw_bytes)
+        .as_bytes_unsafe()
+        .unwrap_or(&[])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,6 +251,21 @@ mod tests {
         let view = DuckStringView::from_bytes(&bytes);
         assert_eq!(view.len(), 12);
         assert_eq!(view.as_str(), Some(s));
+    }
+
+    #[test]
+    fn read_duck_blob_preserves_non_utf8_inline_bytes() {
+        // An inline `duckdb_string_t` with bytes that are NOT valid UTF-8.
+        // `read_duck_string` substitutes "" for these; `read_duck_blob` must
+        // return the raw bytes unchanged.
+        let payload = [0x80u8, 0xF0, 0x01, 0x42];
+        let mut bytes = [0u8; 16];
+        let len = u32::try_from(payload.len()).unwrap_or(u32::MAX);
+        bytes[..4].copy_from_slice(&len.to_le_bytes());
+        bytes[4..4 + payload.len()].copy_from_slice(&payload);
+
+        assert_eq!(unsafe { read_duck_blob(bytes.as_ptr(), 0) }, &payload);
+        assert_eq!(unsafe { read_duck_string(bytes.as_ptr(), 0) }, "");
     }
 
     #[test]
